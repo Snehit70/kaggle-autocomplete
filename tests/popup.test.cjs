@@ -25,8 +25,9 @@ function harness({ stored = {}, loadError = false, saveError = false } = {}) {
       },
     } } },
   });
-  for (const file of ['../shared.js', '../popup.js']) {
-    vm.runInContext(fs.readFileSync(require.resolve(file), 'utf8'), context);
+  const html = fs.readFileSync(require.resolve('../popup.html'), 'utf8');
+  for (const match of html.matchAll(/<script src="([^"]+)"><\/script>/g)) {
+    vm.runInContext(fs.readFileSync(require.resolve(`../${match[1]}`), 'utf8'), context);
   }
   return { elements, writes };
 }

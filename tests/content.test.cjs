@@ -5,7 +5,7 @@ const { test } = require('node:test');
 
 // Controlled selection/focus/timers exercise the real script without changing
 // a user's notebook. These checks do not replace a browser smoke test.
-function harness({ code = true, ready = true, text = 'print', visible = false, stored = {}, deferred = false } = {}) {
+function harness({ code = true, ready = true, text = 'print', before = [], visible = false, stored = {}, deferred = false } = {}) {
   const listeners = new Map();
   const timers = new Map();
   const sent = [];
@@ -17,7 +17,7 @@ function harness({ code = true, ready = true, text = 'print', visible = false, s
     nodeType = 1;
     classList = { contains: (name) => name === 'jp-mod-completer-enabled' && ready };
     matches() { return true; }
-    querySelectorAll() { return [line]; }
+    querySelectorAll() { return [...previousLines, line]; }
     closest(selector) {
       if (selector === '.jp-Notebook .jp-CodeCell') return code ? this : null;
       if (selector === '.jp-CodeMirrorEditor') return this;
@@ -29,6 +29,7 @@ function harness({ code = true, ready = true, text = 'print', visible = false, s
   }
   const target = new Element();
   const line = new Element();
+  const previousLines = before.map(textContent => ({ textContent }));
   const textNode = { nodeType: 3, parentElement: line };
   const selection = { isCollapsed: true, rangeCount: 1, anchorNode: textNode, anchorOffset: text.length };
   const document = {
@@ -53,14 +54,16 @@ function harness({ code = true, ready = true, text = 'print', visible = false, s
     setTimeout: (fn) => { timers.set(++nextTimer, fn); return nextTimer; },
     clearTimeout: (id) => timers.delete(id),
   });
-  for (const file of ['../shared.js', '../content.js']) {
-    vm.runInContext(fs.readFileSync(require.resolve(file), 'utf8'), context);
+  const manifest = JSON.parse(fs.readFileSync(require.resolve('../manifest.json'), 'utf8'));
+  for (const file of manifest.content_scripts[0].js) {
+    vm.runInContext(fs.readFileSync(require.resolve(`../${file}`), 'utf8'), context);
   }
   return {
     sent, selection, document, target,
     fire(name, extra = {}) { listeners.get(name)?.({ target, key: 't', isTrusted: true, ...extra }); },
     change(changes, area = 'sync') { changed(changes, area); },
     loadSettings() { loadSettings(); },
+    showCompleter() { visible = true; },
     flush() { const callbacks = [...timers.values()]; timers.clear(); for (const fn of callbacks) fn(); },
   };
 }
@@ -153,4 +156,16 @@ test('typing waits until settings have loaded', () => {
 test('a stale initial read cannot undo a newer disable event', () => {
   const h = harness({ deferred: true }); h.change({ enabled: { newValue: false } });
   h.loadSettings(); h.fire('keyup'); h.flush(); assert.equal(h.sent.length, 0);
+});
+
+test('rendered preceding lines are checked for multiline strings', () => {
+  const h = harness({ before: ['s = """opening'], text: 'print' });
+  h.fire('keyup'); h.flush(); assert.equal(h.sent.length, 0);
+  const closed = harness({ before: ['s = """opening', 'closing"""'], text: 'print' });
+  closed.fire('keyup'); closed.flush(); assert.equal(closed.sent.length, 2);
+});
+
+test('a completion menu opened during the delay suppresses the request', () => {
+  const h = harness(); h.fire('keyup'); h.showCompleter(); h.flush();
+  assert.equal(h.sent.length, 0);
 });
