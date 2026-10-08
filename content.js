@@ -2,8 +2,10 @@
 (() => {
   'use strict';
 
-  const DEFAULTS = { enabled: true, delay: 200, minChars: 2 };
-  let settings = { ...DEFAULTS };
+  const { DEFAULTS, normalizeSettings, shouldTrigger } = KaggleAutocomplete;
+  let settings = { ...DEFAULTS, enabled: false };
+  let settingsLoaded = false;
+  let earlyChanges = {};
   let pending = null;
   let composing = false;
 
@@ -13,14 +15,25 @@
   }
 
   chrome.storage.sync.get(DEFAULTS, (stored) => {
-    settings = stored;
+    if (chrome.runtime?.lastError) return;
+    settings = normalizeSettings({ ...stored, ...earlyChanges });
+    settingsLoaded = true;
+    earlyChanges = {};
     cancelPending();
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'sync') return;
+    const updated = {};
+    let relevant = false;
     for (const key of Object.keys(DEFAULTS)) {
-      if (key in changes) settings[key] = changes[key].newValue ?? DEFAULTS[key];
+      if (key in changes) {
+        updated[key] = changes[key].newValue ?? DEFAULTS[key];
+        relevant = true;
+      }
     }
+    if (!relevant) return;
+    if (settingsLoaded) settings = normalizeSettings({ ...settings, ...updated });
+    else Object.assign(earlyChanges, updated);
     cancelPending();
   });
 
@@ -50,21 +63,17 @@
     const range = document.createRange();
     range.setStart(line, 0);
     range.setEnd(node, selection.anchorOffset);
-    return { node, offset: selection.anchorOffset, line, text: range.toString() };
+    const lines = [...target.querySelectorAll('.cm-line')];
+    const index = lines.indexOf(line);
+    if (index === -1) return null;
+    const text = range.toString();
+    const context = [...lines.slice(0, index).map((el) => el.textContent), text].join('\n');
+    return { node, offset: selection.anchorOffset, line, text, context };
   }
 
   function sameCursor(a, b) {
     return !!a && !!b && a.node === b.node && a.offset === b.offset &&
-      a.line === b.line && a.text === b.text;
-  }
-
-  function shouldTrigger(text) {
-    const hash = text.indexOf('#');
-    if (hash !== -1 && (text.slice(0, hash).split(/['"]/).length - 1) % 2 === 0) return false;
-    if (/[A-Za-z_]\w*\.\w*$/.test(text)) return true;
-    const word = text.match(/[A-Za-z_]\w*$/);
-    return !!word && word[0].length >= settings.minChars &&
-      !/\d[A-Za-z_]\w*$/.test(text.slice(-word[0].length - 1));
+      a.line === b.line && a.text === b.text && a.context === b.context;
   }
 
   function schedule(target) {
@@ -72,7 +81,7 @@
     if (!settings.enabled || composing || !eligibleEditor(target)) return;
     if (document.activeElement !== target || completerVisible()) return;
     const cursor = readCursor(target);
-    if (!cursor || !shouldTrigger(cursor.text)) return;
+    if (!cursor || !shouldTrigger(cursor.context, settings.minChars)) return;
     const request = { target, cursor, timer: null };
     pending = request;
     request.timer = setTimeout(() => {

@@ -1,11 +1,11 @@
 {
   "name": "kaggle-autocomplete",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Automatic completion suggestions for Kaggle JupyterLab notebooks",
   "scripts": {
     "test": "node --test tests/*.test.cjs",
-    "check": "node --check content.js && node --check popup.js"
+    "check": "node --check shared.js && node --check content.js && node --check popup.js"
   },
   "engines": { "node": ">=20" }
 }

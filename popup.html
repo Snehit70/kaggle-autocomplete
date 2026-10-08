@@ -1,21 +1,23 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <style>
-      body { font: 13px system-ui, sans-serif; width: 220px; margin: 12px; }
-      label { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
-      input[type='number'] { width: 60px; }
-      h1 { font-size: 14px; margin: 0 0 8px; }
-      p { color: #666; font-size: 11px; margin: 8px 0 0; }
+      body { font: 16px/1.4 system-ui, sans-serif; width: 260px; margin: 16px; color: #222; background: #fff; }
+      label { display: flex; justify-content: space-between; align-items: center; min-height: 32px; margin: 10px 0; }
+      input[type='number'] { font: inherit; width: 72px; min-height: 28px; }
+      h1 { font-size: 18px; margin: 0 0 12px; }
+      p { color: #666; font-size: 14px; margin: 12px 0 0; }
     </style>
   </head>
   <body>
     <h1>Kaggle Autocomplete</h1>
-    <label>Enabled <input id="enabled" type="checkbox" /></label>
-    <label>Delay (ms) <input id="delay" type="number" min="0" max="2000" step="50" /></label>
-    <label>Min. chars <input id="minChars" type="number" min="1" max="5" /></label>
-    <p>The notebook session must be running: suggestions come from the kernel.</p>
+    <label>Enabled <input id="enabled" type="checkbox" disabled /></label>
+    <label>Delay (ms) <input id="delay" type="number" min="0" max="2000" step="50" required disabled /></label>
+    <label>Min. chars <input id="minChars" type="number" min="1" max="5" step="1" required disabled /></label>
+    <p id="status" role="status">Loading settings...</p>
+    <p>Start a Kaggle notebook session for kernel suggestions. A unique match may be inserted automatically.</p>
+    <script src="shared.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

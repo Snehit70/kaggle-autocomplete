@@ -5,17 +5,19 @@ const { test } = require('node:test');
 
 // Controlled selection/focus/timers exercise the real script without changing
 // a user's notebook. These checks do not replace a browser smoke test.
-function harness({ code = true, ready = true, text = 'print', visible = false } = {}) {
+function harness({ code = true, ready = true, text = 'print', visible = false, stored = {}, deferred = false } = {}) {
   const listeners = new Map();
   const timers = new Map();
   const sent = [];
   let changed;
   let nextTimer = 0;
+  let loadSettings;
   class Element {
     isConnected = true;
     nodeType = 1;
     classList = { contains: (name) => name === 'jp-mod-completer-enabled' && ready };
     matches() { return true; }
+    querySelectorAll() { return [line]; }
     closest(selector) {
       if (selector === '.jp-Notebook .jp-CodeCell') return code ? this : null;
       if (selector === '.jp-CodeMirrorEditor') return this;
@@ -37,7 +39,10 @@ function harness({ code = true, ready = true, text = 'print', visible = false } 
   };
   const context = vm.createContext({
     chrome: { storage: {
-      sync: { get: (defaults, cb) => cb({ ...defaults }) },
+      sync: { get: (defaults, cb) => {
+        loadSettings = () => cb({ ...defaults, ...stored });
+        if (!deferred) loadSettings();
+      } },
       onChanged: { addListener: (fn) => { changed = fn; } },
     } },
     document,
@@ -48,11 +53,14 @@ function harness({ code = true, ready = true, text = 'print', visible = false } 
     setTimeout: (fn) => { timers.set(++nextTimer, fn); return nextTimer; },
     clearTimeout: (id) => timers.delete(id),
   });
-  vm.runInContext(fs.readFileSync(require.resolve('../content.js'), 'utf8'), context);
+  for (const file of ['../shared.js', '../content.js']) {
+    vm.runInContext(fs.readFileSync(require.resolve(file), 'utf8'), context);
+  }
   return {
     sent, selection, document, target,
     fire(name, extra = {}) { listeners.get(name)?.({ target, key: 't', isTrusted: true, ...extra }); },
     change(changes, area = 'sync') { changed(changes, area); },
+    loadSettings() { loadSettings(); },
     flush() { const callbacks = [...timers.values()]; timers.clear(); for (const fn of callbacks) fn(); },
   };
 }
@@ -70,6 +78,8 @@ for (const [name, options] of [
   ['short identifier', { text: 'p' }],
   ['Python comment', { text: '# print' }],
   ['number prefix', { text: '1e' }],
+  ['string', { text: 's = "print' }],
+  ['escaped quote followed by a comment', { text: "s = 'it\\'s' # print" }],
 ]) {
   test(`does not dispatch Tab for ${name}`, () => {
     const h = harness(options); h.fire('keyup'); h.flush(); assert.equal(h.sent.length, 0);
@@ -121,4 +131,26 @@ test('IME composition waits for the committed text', () => {
 test('storage changes outside sync do not affect the setting', () => {
   const h = harness(); h.change({ enabled: { newValue: false } }, 'local');
   h.fire('keyup'); h.flush(); assert.equal(h.sent.length, 2);
+});
+
+test('unrelated sync settings leave a pending completion alone', () => {
+  const h = harness(); h.fire('keyup'); h.change({ unrelated: { newValue: 1 } });
+  h.flush(); assert.equal(h.sent.length, 2);
+});
+
+test('removed settings return to defaults', () => {
+  const h = harness({ stored: { enabled: false } });
+  h.change({ enabled: { oldValue: false } }); h.fire('keyup'); h.flush();
+  assert.equal(h.sent.length, 2);
+});
+
+test('typing waits until settings have loaded', () => {
+  const h = harness({ deferred: true }); h.fire('keyup'); h.flush();
+  assert.equal(h.sent.length, 0);
+  h.loadSettings(); h.fire('keyup'); h.flush(); assert.equal(h.sent.length, 2);
+});
+
+test('a stale initial read cannot undo a newer disable event', () => {
+  const h = harness({ deferred: true }); h.change({ enabled: { newValue: false } });
+  h.loadSettings(); h.fire('keyup'); h.flush(); assert.equal(h.sent.length, 0);
 });
